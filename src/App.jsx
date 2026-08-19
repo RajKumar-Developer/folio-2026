@@ -7,7 +7,7 @@ function App() {
   return (
     <Canvas
       camera={{
-        position: [0, 25, 75],
+        position: [10, 25, 50],
         fov: 50,
         near: 0.1,
         far: 500,
