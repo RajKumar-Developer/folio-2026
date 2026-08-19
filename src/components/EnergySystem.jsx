@@ -6,7 +6,7 @@ function EnergySystem() {
   return (
     <group
       position={[0, 0, 0]}
-      scale={1}
+      scale={2}
     >
       <primitive object={scene} />
     </group>

@@ -1,5 +1,8 @@
 import { useGLTF } from '@react-three/drei'
 
+import ReactorLight from './Reactor/ReactorLight'
+import ReactorChamber from './Reactor/ReactorChamber'
+
 function Reactor() {
   const { scene } = useGLTF('/models/reactor/reactor.glb')
 
@@ -9,6 +12,10 @@ function Reactor() {
       scale={1.2}
     >
       <primitive object={scene} />
+
+      <ReactorLight />
+
+      <ReactorChamber />
     </group>
   )
 }
