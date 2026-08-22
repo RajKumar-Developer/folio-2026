@@ -2,6 +2,7 @@ import { useGLTF } from '@react-three/drei'
 
 import ReactorLight from './Reactor/ReactorLight'
 import ReactorChamber from './Reactor/ReactorChamber'
+import AddCharacter from './character/AddCharacter'
 
 function Reactor() {
   const { scene } = useGLTF('/models/reactor/reactor.glb')
@@ -9,11 +10,12 @@ function Reactor() {
   return (
     <group
       position={[0, 0, 0]}
-      scale={1.2}
+      scale={[1.2, 1.0, 1.2]}
     >
       <primitive object={scene} />
       <ReactorLight />
       <ReactorChamber />
+      <AddCharacter/>
     </group>
   )
 }

@@ -1,4 +1,5 @@
 import { Canvas } from '@react-three/fiber'
+import { OrbitControls } from '@react-three/drei'
 
 import World from './scenes/World'
 import Lighting from './scenes/Lighting'
@@ -23,6 +24,15 @@ function App() {
       <Lighting />
 
       <World />
+      <OrbitControls
+        makeDefault
+        enableDamping
+        enablePan
+        minDistance={5}
+        maxDistance={100}
+        minPolarAngle={0.2}
+        maxPolarAngle={Math.PI / 2 - 0.05}
+      />
     </Canvas>
   )
 }
