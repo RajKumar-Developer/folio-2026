@@ -3,7 +3,6 @@ import { useGLTF } from '@react-three/drei'
 import ReactorLight from './Reactor/ReactorLight'
 import ReactorChamber from './Reactor/ReactorChamber'
 import AddCharacter from './character/AddCharacter'
-
 function Reactor() {
   const { scene } = useGLTF('/models/reactor/reactor.glb')
 
