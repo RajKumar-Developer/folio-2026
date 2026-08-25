@@ -7,8 +7,9 @@ function EnergySystem() {
     <group
       position={[0, 0, 0]}
       scale={2}
+      //rotation={[Math.PI / 0, 0, 0]}
     >
-      <primitive object={scene} />
+      <primitive object={scene}/>
     </group>
   )
 }

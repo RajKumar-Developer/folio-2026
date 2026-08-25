@@ -3,7 +3,7 @@ import { Cylinder } from '@react-three/drei'
 function ReactorChamber() {
   return (
     <Cylinder
-      args={[2.6, 2.6, 4.5, 64, 1, true]}
+      args={[2.6, 2.6, 6, 64, 1, true]}
       position={[0, 3.2, 0]}
       scale={1.2}
     >
