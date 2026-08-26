@@ -12,7 +12,7 @@ function Reactor() {
       scale={[1.2, 1.0, 1.2]}
     >
       <primitive object={scene} />
-      <ReactorLight />
+      {/* <ReactorLight /> */}
       <ReactorChamber />
       <AddCharacter/>
     </group>

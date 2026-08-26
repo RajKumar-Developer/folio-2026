@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import { EffectComposer, Bloom } from '@react-three/postprocessing'
 
 import World from './scenes/World'
 import Lighting from './scenes/Lighting'
@@ -33,6 +34,14 @@ function App() {
         minPolarAngle={0.2}
         maxPolarAngle={Math.PI / 2 - 0.05}
       />
+      <EffectComposer>
+        <Bloom
+          intensity={1}
+          luminanceThreshold={0.3}
+          luminanceSmoothing={0.9}
+          mipmapBlur
+        />
+      </EffectComposer>
     </Canvas>
   )
 }
