@@ -47,7 +47,7 @@ function Ground() {
   return (
     <primitive
       object={scene}
-      scale={2}
+      // scale={2}
     />
   )
 }
