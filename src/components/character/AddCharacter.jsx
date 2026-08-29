@@ -13,7 +13,7 @@ function AddCharacter() {
   //   })
   // }, [scene])
 
-  return <primitive object={scene} position={[0, 1.5, 0]} scale={1.9} />
+  return <primitive object={scene} position={[0, 0.38, 0]} scale={2} />
 }
 
 useGLTF.preload('/models/character/demoChar.glb')

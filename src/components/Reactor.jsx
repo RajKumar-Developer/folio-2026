@@ -9,9 +9,8 @@ function Reactor() {
   return (
     <group
       position={[0, 0, 0]}
-      scale={[1.2, 1.0, 1.2]}
     >
-      <primitive object={scene} scale={0.4}/>
+      <primitive object={scene}/>
       {/* <ReactorLight /> */}
       <ReactorChamber />
       <AddCharacter/>
