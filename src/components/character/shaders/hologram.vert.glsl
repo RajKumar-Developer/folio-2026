@@ -3,16 +3,29 @@ uniform float uTime;
 varying vec3 vPosition;
 varying vec3 vNormal;
 
-#include ../includes/random2D.glsl
+#include <common>
+#include <skinning_pars_vertex>
+
+float random2D(vec2 value)
+{
+    return fract(sin(dot(value.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+}
 
 void main()
 {
+    // Skinning support (keeps animated characters posed correctly)
+    #include <beginnormal_vertex>
+    #include <skinbase_vertex>
+    #include <skinnormal_vertex>
+    #include <begin_vertex>
+    #include <skinning_vertex>
+
     // Position
-    vec4 modelPosition = modelMatrix * vec4(position, 1.0);
+    vec4 modelPosition = modelMatrix * vec4(transformed, 1.0);
 
     // Glitch
     float glitchTime = uTime - modelPosition.y;
-    float glitchStrength = sin(glitchTime) + sin(glitchTime * 3.45) +  sin(glitchTime * 8.76);
+    float glitchStrength = sin(glitchTime) + sin(glitchTime * 3.45) + sin(glitchTime * 8.76);
     glitchStrength /= 3.0;
     glitchStrength = smoothstep(0.3, 1.0, glitchStrength);
     glitchStrength *= 0.25;
@@ -23,7 +36,7 @@ void main()
     gl_Position = projectionMatrix * viewMatrix * modelPosition;
 
     // Model normal
-    vec4 modelNormal = modelMatrix * vec4(normal, 0.0);
+    vec4 modelNormal = modelMatrix * vec4(objectNormal, 0.0);
 
     // Varyings
     vPosition = modelPosition.xyz;
