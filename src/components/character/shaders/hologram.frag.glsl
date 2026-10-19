@@ -1,11 +1,17 @@
 uniform vec3 uColor;
 uniform float uTime;
+uniform float uClipMinY;
+uniform float uClipMaxY;
 
 varying vec3 vPosition;
 varying vec3 vNormal;
 
 void main()
 {
+    // Optional world-space height clip (keeps the hologram inside the tube)
+    if(vPosition.y < uClipMinY || vPosition.y > uClipMaxY)
+        discard;
+
     // Normal
     vec3 normal = normalize(vNormal);
     if(!gl_FrontFacing)

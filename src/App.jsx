@@ -22,7 +22,7 @@ function App() {
       />
       <color attach="background" args={['#0B1118']} />
 
-      <Lighting />
+      {/* <Lighting /> */}
 
       <World />
       <OrbitControls
@@ -36,7 +36,7 @@ function App() {
       />
       <EffectComposer>
         <Bloom
-          intensity={1}
+          intensity={0.2}
           luminanceThreshold={0.3}
           luminanceSmoothing={0.9}
           mipmapBlur
