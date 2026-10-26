@@ -1,9 +1,6 @@
 import Ground from '../components/Ground'
 import Reactor from '../components/Reactor'
 import EnergySystem from '../components/EnergySystem'
-import NeonBot from '../components/NeonBot'
-
-
 
 function World() {
   return (
@@ -11,7 +8,6 @@ function World() {
       <Ground />
       <Reactor />
       <EnergySystem />
-      {/* <NeonBot position={[0, 0, 4]} neonColor="#00b4ff" /> */}
     </>
   )
 }

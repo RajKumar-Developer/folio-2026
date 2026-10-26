@@ -60,7 +60,7 @@ function Ground({ orbPosition = [0, 0, 0] }) {
     // --------------------------------------------------
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(12, 12);
+    texture.repeat.set(6, 6);
     texture.anisotropy = 16;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
