@@ -1,33 +1,36 @@
 import { Canvas } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import { OrbitControls, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
- 
+
 import World from './scenes/World'
-import Lighting from './scenes/Lighting'
 import GuideDrone from './components/GuideDrone/GuideDrone'
- 
+
 function App() {
   return (
     <Canvas camera={{ position: [10, 25, 50], fov: 50, near: 0.1, far: 500 }} shadows>
       <fog attach="fog" args={['#0B1118', 45, 110]} />
       <color attach="background" args={['#0B1118']} />
- 
-      {/* <Lighting /> */}
- 
+
+      {/* The white body needs light to show its shape */}
+      <ambientLight intensity={0.4} />
+      <directionalLight position={[10, 20, 10]} intensity={1.5} castShadow />
+      <Environment preset="city" environmentIntensity={0.4} />
+
       <World />
- 
-      {/* The drone: WASD / Arrows to move, Space up, Shift down */}
+
       <GuideDrone
-        controlled
-        idleCenter={[0, 4, 12]} // start position
+        url="/models/cyklo/cyklo.glb"
+        logNodes // prints node and material names in the console. Remove once done.
         scale={3}
         speed={14}
+        idleCenter={[0, 4, 12]}
+        // modelYaw={Math.PI}  // uncomment if the drone flies backwards
       />
- 
+
       <OrbitControls
         makeDefault
         enableDamping
-        enablePan={false} // camera follows the drone
+        enablePan={false}
         minDistance={6}
         maxDistance={40}
         minPolarAngle={0.2}
@@ -39,5 +42,5 @@ function App() {
     </Canvas>
   )
 }
- 
+
 export default App
