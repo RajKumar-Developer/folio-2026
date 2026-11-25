@@ -18,13 +18,13 @@ function App() {
 
       <World />
 
-      <GuideDrone
-        url="/models/cyklo/cyklo.glb"
-        logNodes // prints node and material names in the console. Remove once done.
+     <GuideDrone
+        url="/models/cyklo/cyklon_v5.glb"
+        logNodes
         scale={3}
         speed={14}
         idleCenter={[0, 4, 12]}
-        // modelYaw={Math.PI}  // uncomment if the drone flies backwards
+        modelYaw={0}
       />
 
       <OrbitControls

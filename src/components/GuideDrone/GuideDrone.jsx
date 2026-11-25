@@ -1,343 +1,411 @@
-import { useRef, useMemo, useEffect } from 'react'
+import { Html, useGLTF } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
-import { useGLTF, useAnimations } from '@react-three/drei'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-// import { dronePos } from './shared'
 
-const { damp, clamp } = THREE.MathUtils
+const IDLE_SECONDS = 10
+const MENU_KEYS = ['Tab', 'KeyI', 'KeyM']
 
-/**
- * Guide drone: body, reactor, shields, weapons and head cam.
- * Same controls as before: WASD / Arrows (camera-relative), Space up, Shift down.
- *
- * `parts` tells the component which node is which. Each value is a space-separated
- * list of words that must ALL appear in the node's name (case-insensitive); prefix a
- * word with ! to exclude it.   e.g. 'left weapon !shield'
- * Set logNodes once to print every node and material name in the browser console,
- * then copy the real names into `parts`.
- */
-const DEFAULT_PARTS = {
-  headCam: 'cam',
-  headShield: 'head shield',
-  weaponL: 'left weapon !shield',
-  weaponR: 'right weapon !shield',
-  shieldL: 'left shield',
-  shieldR: 'right shield',
+const CAM = {
+  azimuth: Math.PI * 0.25,
+  elevation: 0.62,
+  distance: 24,      // default distance (the menu changes this)
+  minDistance: 12,
+  maxDistance: 60,
+  zoomOut: 10,       // extra distance at full speed
+  followEase: 6,
+  lookHeight: 1,
+  rotateSpeed: 1.5,
+  rotateKeys: true,
 }
 
-const norm = (s) => (s || '').toLowerCase().replace(/[_.\-]+/g, ' ')
-const matches = (name, query) => {
-  const n = norm(name)
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((w) => (w.startsWith('!') ? !n.includes(w.slice(1)) : n.includes(w)))
+const PRESETS = [
+  { label: 'Close', value: 14 },
+  { label: 'Medium', value: 24 },
+  { label: 'Far', value: 42 },
+]
+
+function dampAngle(current, target, lambda, dt) {
+  const diff =
+    THREE.MathUtils.euclideanModulo(target - current + Math.PI, Math.PI * 2) -
+    Math.PI
+  return current + diff * (1 - Math.exp(-lambda * dt))
 }
 
-function GuideDrone({
-  url = '/models/cyklo/cyklo.glb',
-  parts = DEFAULT_PARTS,
-  logNodes = false, // print node + material names once
-  reactorMat = 'reactor', // material name (substring) that should glow
-  glowColor = '#00d9ff',
-  glowIntensity = 2.5,
-  size = 1, // model is auto-fitted to this diameter, then multiplied by `scale`
-  modelYaw = 0, // rotate the model if it faces the wrong way (e.g. Math.PI)
+function CameraMenu({ open, distance, onChange, onClose }) {
+  const panel = {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    width: 260,
+    padding: '16px 18px',
+    borderRadius: 14,
+    background: 'rgba(8, 16, 24, 0.82)',
+    border: '1px solid rgba(0, 220, 255, 0.45)',
+    boxShadow: '0 0 24px rgba(0, 220, 255, 0.18)',
+    backdropFilter: 'blur(8px)',
+    color: '#d8f6ff',
+    fontFamily: 'system-ui, sans-serif',
+    fontSize: 13,
+    pointerEvents: 'auto',
+    userSelect: 'none',
+  }
 
-  // keyframe animation from Blender
-  playAnimation = true,
-  animationName = null, // clip to play; null = the first clip
-  skipTracks = null, // regex string of tracks to drop, e.g. 'Root|Empty' (keeps keyframes from moving the whole drone)
-  procedural: proceduralProp = 'auto', // code-driven part motion; 'auto' = off when the GLB has its own animation
-
-  // movement
-  controlled = true,
-  enabled = true,
-  speed = 12,
-  acceleration = 5,
-  bounds = 80,
-  minY = 1.5,
-  maxY = 15,
-  followCamera = true,
-  cameraOffset = [0, 8, 16],
-  idleCenter = [0, 4, 12],
-  floorY = 0,
-  scale = 3,
-  attention = false,
-}) {
-  const { scene, animations } = useGLTF(url)
-  const controls = useThree((s) => s.controls)
-
-  // Clone, then work out how to centre and size the model
-  const fit = useMemo(() => {
-    const model = scene.clone(true)
-    model.updateMatrixWorld(true)
-    const box = new THREE.Box3().setFromObject(model)
-    const dims = box.getSize(new THREE.Vector3())
-    const max = Math.max(dims.x, dims.y, dims.z) || 1
-    return { model, s: size / max, center: box.getCenter(new THREE.Vector3()), max }
-  }, [scene, size])
-  const { model } = fit
-
-  // Blender keyframes: optionally strip tracks that would move the whole drone
-  const clips = useMemo(() => {
-    const re = skipTracks ? new RegExp(skipTracks, 'i') : null
-    return animations.map((c) => {
-      const clip = c.clone()
-      if (re) clip.tracks = clip.tracks.filter((t) => !re.test(t.name))
-      return clip
-    })
-  }, [animations, skipTracks])
-  const modelGroup = useRef()
-  const { actions, names } = useAnimations(clips, modelGroup)
-  const procedural = proceduralProp === 'auto' ? clips.length === 0 : proceduralProp
-
-  useEffect(() => {
-    if (logNodes)
-      console.log('[GuideDrone] Animations:', clips.map((c) => `${c.name} (${c.duration.toFixed(2)}s)`))
-    if (!playAnimation || !names.length) return
-    const action = actions[animationName ?? names[0]]
-    if (!action) {
-      console.warn(`[GuideDrone] Animation "${animationName}" not found. Available:`, names)
-      return
-    }
-    action.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.3).play()
-    return () => action.fadeOut(0.3)
-  }, [actions, names, clips, animationName, playAnimation, logNodes])
-
-  const root = useRef()
-  const bob = useRef()
-  const ring = useRef()
-  const light = useRef()
-  const keys = useRef({})
-  const found = useRef({ glow: [], list: [] })
-  const anim = useRef({
-    camInit: false,
-    attention: 0,
-    thrust: 0,
-    vel: new THREE.Vector3(),
-    cf: new THREE.Vector3(),
-    cr: new THREE.Vector3(),
-    desired: new THREE.Vector3(),
-    delta: new THREE.Vector3(),
-    last: new THREE.Vector3(),
-  })
-
-  // Keyboard
-  useEffect(() => {
-    if (!controlled) return
-    const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable
-    const block = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']
-    const down = (e) => {
-      if (typing(e)) return
-      keys.current[e.code] = true
-      if (block.includes(e.code)) e.preventDefault()
-    }
-    const up = (e) => (keys.current[e.code] = false)
-    const clear = () => (keys.current = {})
-    window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
-    window.addEventListener('blur', clear)
-    return () => {
-      window.removeEventListener('keydown', down)
-      window.removeEventListener('keyup', up)
-      window.removeEventListener('blur', clear)
-    }
-  }, [controlled])
-
-  // Find parts, set up the reactor glow
-  useEffect(() => {
-    const list = []
-    const glow = []
-    const nodeNames = []
-    const matNames = new Set()
-
-    model.traverse((o) => {
-      nodeNames.push(o.name)
-      if (o.isMesh) {
-        o.castShadow = true
-        const mats = Array.isArray(o.material) ? o.material : [o.material]
-        mats.forEach((m) => {
-          matNames.add(m.name)
-          if (norm(m.name).includes(reactorMat.toLowerCase()) && !glow.includes(m)) {
-            m.emissive = new THREE.Color(glowColor)
-            m.emissiveMap = null
-            m.emissiveIntensity = glowIntensity
-            m.toneMapped = false // lets Bloom pick it up
-            m.needsUpdate = true
-            glow.push(m)
-          }
-        })
-      }
-    })
-
-    const grab = (key, query, side = 0, phase = 0) => {
-      const node = model.children.length
-        ? (() => {
-            let hit = null
-            model.traverse((o) => {
-              if (!hit && o.name && matches(o.name, query)) hit = o
-            })
-            return hit
-          })()
-        : null
-      if (node)
-        list.push({
-          key,
-          node,
-          side,
-          phase,
-          rot: node.rotation.clone(),
-          pos: node.position.clone(),
-        })
-      else console.warn(`[GuideDrone] No node matched "${query}" for ${key}. Set logNodes to see names.`)
-    }
-
-    grab('headCam', parts.headCam)
-    grab('headShield', parts.headShield, 0, 1)
-    grab('weaponL', parts.weaponL, 1, 0)
-    grab('weaponR', parts.weaponR, -1, 1.7)
-    grab('shieldL', parts.shieldL, 1, 0.8)
-    grab('shieldR', parts.shieldR, -1, 2.5)
-
-    found.current = { glow, list }
-
-    if (logNodes) {
-      console.log('[GuideDrone] Nodes:', nodeNames.filter(Boolean))
-      console.log('[GuideDrone] Materials:', [...matNames])
-      console.log('[GuideDrone] Matched:', list.map((p) => `${p.key} -> ${p.node.name}`))
-    }
-  }, [model, parts, reactorMat, glowColor, glowIntensity, logNodes])
-
-  useFrame((state, delta) => {
-    const dt = Math.min(delta, 0.05)
-    const t = state.clock.elapsedTime
-    const r = root.current
-    const b = bob.current
-    if (!r || !b) return
-    const a = anim.current
-    const { glow, list } = found.current
-
-    // ---- Flight ----
-    const k = keys.current
-    const on = controlled && enabled
-    const fwd = on ? (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0) : 0
-    const strafe = on ? (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0) : 0
-    const lift = on ? (k.Space ? 1 : 0) - (k.ShiftLeft || k.ShiftRight ? 1 : 0) : 0
-
-    state.camera.getWorldDirection(a.cf)
-    a.cf.y = 0
-    if (a.cf.lengthSq() < 1e-4) a.cf.set(0, 0, -1)
-    a.cf.normalize()
-    a.cr.set(-a.cf.z, 0, a.cf.x)
-
-    a.desired.set(0, 0, 0).addScaledVector(a.cf, fwd).addScaledVector(a.cr, strafe)
-    if (a.desired.lengthSq() > 1) a.desired.normalize()
-    a.desired.multiplyScalar(speed)
-    a.desired.y = lift * speed * 0.6
-
-    a.vel.x = damp(a.vel.x, a.desired.x, acceleration, dt)
-    a.vel.y = damp(a.vel.y, a.desired.y, acceleration, dt)
-    a.vel.z = damp(a.vel.z, a.desired.z, acceleration, dt)
-
-    r.position.addScaledVector(a.vel, dt)
-    r.position.x = clamp(r.position.x, -bounds, bounds)
-    r.position.z = clamp(r.position.z, -bounds, bounds)
-    if (r.position.y < minY || r.position.y > maxY) {
-      r.position.y = clamp(r.position.y, minY, maxY)
-      a.vel.y = 0
-    }
-
-    const horiz = Math.hypot(a.vel.x, a.vel.z)
-    if (horiz > 0.5) {
-      const want = Math.atan2(a.vel.x, a.vel.z)
-      const diff = ((((want - r.rotation.y + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI
-      r.rotation.y += diff * Math.min(1, 6 * dt)
-    }
-
-    // ---- Follow camera (still rotatable with the mouse) ----
-    if (controlled && followCamera && controls) {
-      if (!a.camInit) {
-        controls.target.copy(r.position)
-        state.camera.position.set(
-          r.position.x + cameraOffset[0],
-          r.position.y + cameraOffset[1],
-          r.position.z + cameraOffset[2]
-        )
-        a.last.copy(r.position)
-        a.camInit = true
-      } else {
-        a.delta.copy(r.position).sub(a.last)
-        state.camera.position.add(a.delta)
-        controls.target.add(a.delta)
-        a.last.copy(r.position)
-      }
-      controls.update()
-    }
-
-    // dronePos.copy(r.position)
-
-    // ---- Hover bob + lean ----
-    b.position.y = Math.sin(t * 2) * 0.06
-    const sin = Math.sin(r.rotation.y)
-    const cos = Math.cos(r.rotation.y)
-    const forward = a.vel.x * sin + a.vel.z * cos
-    const side = a.vel.x * cos - a.vel.z * sin
-    b.rotation.x = damp(b.rotation.x, clamp(forward * 0.025, -0.35, 0.35), 6, dt)
-    b.rotation.z = damp(b.rotation.z, clamp(-side * 0.025, -0.35, 0.35), 6, dt)
-
-    // ---- Thrust and attention drive the reactor glow ----
-    a.thrust = damp(a.thrust, clamp(a.vel.length() / speed, 0, 1), 5, dt)
-    a.attention = damp(a.attention, attention ? 1 : 0, 6, dt)
-    const pulse = a.attention * (0.5 + 0.5 * Math.sin(t * 10))
-    // keyframe animation runs a little faster when flying
-    if (playAnimation) Object.values(actions).forEach((ac) => ac && (ac.timeScale = 1 + a.thrust * 0.5))
-    const breathe = 0.5 + 0.5 * Math.sin(t * 2.5)
-    glow.forEach((m) => (m.emissiveIntensity = glowIntensity * (0.8 + breathe * 0.3) + a.thrust * 2 + pulse * 2.5))
-
-    // ---- Part animation (rotations use each node's own origin as the pivot) ----
-    const u = fit.max * 0.012 // small movement, in the model's own units
-    if (procedural) list.forEach((p) => {
-      const n = p.node
-      if (p.key === 'headCam') {
-        n.rotation.y = p.rot.y + Math.sin(t * 0.8) * 0.5 // scanning left and right
-      } else if (p.key === 'headShield') {
-        n.position.y = p.pos.y + Math.sin(t * 2 + p.phase) * u * 0.5
-      } else {
-        // weapons and shields float gently and tuck back a little when moving fast
-        n.position.y = p.pos.y + Math.sin(t * 1.8 + p.phase) * u
-        n.rotation.x = p.rot.x - a.thrust * 0.2
-      }
-    })
-
-    // ---- Floor underglow ----
-    const h = Math.max(0, r.position.y - floorY)
-    if (ring.current) {
-      ring.current.position.set(r.position.x, floorY + 0.02, r.position.z)
-      ring.current.scale.setScalar((1 + h * 0.12) * scale)
-      ring.current.material.opacity = clamp(0.75 - h * 0.05, 0.15, 0.75)
-    }
-    if (light.current) light.current.position.set(r.position.x, floorY + 0.4, r.position.z)
+  const presetBtn = (active) => ({
+    flex: 1,
+    padding: '6px 0',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontSize: 12,
+    color: active ? '#06121a' : '#d8f6ff',
+    background: active ? '#00dcff' : 'transparent',
+    border: '1px solid rgba(0, 220, 255, 0.5)',
   })
 
   return (
     <>
-      <group ref={root} position={idleCenter} scale={scale}>
-        <group ref={bob}>
-          <group ref={modelGroup} rotation={[0, modelYaw, 0]} scale={fit.s}>
-            <primitive object={model} position={[-fit.center.x, -fit.center.y, -fit.center.z]} />
-          </group>
-        </group>
-      </group>
+      {open && (
+        <div style={panel}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 14,
+            }}
+          >
+            <strong style={{ letterSpacing: 1.5, color: '#00dcff' }}>
+              CAMERA
+            </strong>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#d8f6ff',
+                cursor: 'pointer',
+                fontSize: 16,
+              }}
+              aria-label="Close menu"
+            >
+              ✕
+            </button>
+          </div>
 
-      <mesh ref={ring} rotation={[-Math.PI / 2, 0, 0]}>
-        {/* <ringGeometry args={[0.35, 0.42, 48]} /> */}
-        <meshBasicMaterial color={glowColor} transparent opacity={0.6} toneMapped={false} side={THREE.DoubleSide} />
-      </mesh>
-      <pointLight ref={light} color={glowColor} intensity={1.5} distance={6} />
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              marginBottom: 6,
+            }}
+          >
+            <span>Distance</span>
+            <span style={{ color: '#00dcff' }}>{Math.round(distance)}</span>
+          </div>
+
+          <input
+            type="range"
+            min={CAM.minDistance}
+            max={CAM.maxDistance}
+            step={1}
+            value={distance}
+            onChange={(e) => onChange(Number(e.target.value))}
+            onPointerUp={(e) => e.currentTarget.blur()}
+            style={{ width: '100%', accentColor: '#00dcff' }}
+          />
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => onChange(p.value)}
+                style={presetBtn(Math.round(distance) === p.value)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 14, opacity: 0.6, fontSize: 11 }}>
+            Tab / I / M to toggle · Esc to close
+          </div>
+        </div>
+      )}
+
+      {!open && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 16,
+            left: 16,
+            padding: '6px 10px',
+            borderRadius: 8,
+            background: 'rgba(8, 16, 24, 0.6)',
+            border: '1px solid rgba(0, 220, 255, 0.3)',
+            color: '#d8f6ff',
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: 11,
+            pointerEvents: 'none',
+          }}
+        >
+          Tab / I / M · Camera menu
+        </div>
+      )}
     </>
   )
 }
+
+function GuideDrone({
+  url = '/models/cyklo/cyklon_v5.glb',
+  logNodes = false,
+  scale = 3,
+  speed = 28,
+  idleCenter = [0, 4, 12],
+  modelYaw = 0,
+}) {
+  const { scene } = useGLTF(url)
+  const { camera } = useThree()
+
+  const droneRef = useRef(null)
+  const bobRef = useRef(null)
+  const keys = useRef({})
+
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [distanceUI, setDistanceUI] = useState(CAM.distance)
+  const targetDistance = useRef(CAM.distance)
+  const currentDistance = useRef(CAM.distance)
+
+  const camAzimuth = useRef(CAM.azimuth)
+  const smoothAzimuth = useRef(CAM.azimuth)
+  const zoom = useRef(0)
+  const target = useRef(new THREE.Vector3(...idleCenter))
+
+  const faceAngle = useRef(Math.PI)
+  const lastInputTime = useRef(0)
+  const needsClockSync = useRef(true)
+  const initialized = useRef(false)
+
+  const velocity = useRef(new THREE.Vector3())
+  const forwardV = useRef(new THREE.Vector3())
+  const rightV = useRef(new THREE.Vector3())
+  const movementV = useRef(new THREE.Vector3())
+
+  const drone = useMemo(() => scene.clone(true), [scene])
+
+  useEffect(() => {
+    if (!logNodes) return
+    drone.traverse((child) => {
+      if (!child.isMesh) return
+      console.log('Mesh:', child.name)
+      console.log('Material:', child.material)
+    })
+  }, [drone, logNodes])
+
+  const markActive = useCallback(() => {
+    needsClockSync.current = true
+  }, [])
+
+  const setDistance = useCallback((value) => {
+    const v = THREE.MathUtils.clamp(value, CAM.minDistance, CAM.maxDistance)
+    targetDistance.current = v
+    setDistanceUI(v)
+  }, [])
+
+  const resetDrone = useCallback(() => {
+    const group = droneRef.current
+    if (!group) return
+    group.position.set(...idleCenter)
+    target.current.set(...idleCenter)
+    camAzimuth.current = CAM.azimuth
+    smoothAzimuth.current = CAM.azimuth
+    faceAngle.current = Math.PI
+    velocity.current.set(0, 0, 0)
+  }, [idleCenter])
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(
+          event.code
+        )
+      ) {
+        event.preventDefault()
+      }
+
+      if (MENU_KEYS.includes(event.code)) {
+        if (!event.repeat) setMenuOpen((open) => !open)
+        markActive()
+        return
+      }
+
+      if (event.code === 'Escape') {
+        setMenuOpen(false)
+        return
+      }
+
+      keys.current[event.code] = true
+      markActive()
+      if (event.code === 'KeyR' && !event.repeat) resetDrone()
+    }
+
+    const onKeyUp = (event) => {
+      keys.current[event.code] = false
+      markActive()
+    }
+    const onBlur = () => {
+      keys.current = {}
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('pointerdown', markActive)
+    window.addEventListener('pointermove', markActive)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('pointerdown', markActive)
+      window.removeEventListener('pointermove', markActive)
+    }
+  }, [resetDrone, markActive])
+
+  useFrame((state, delta) => {
+    const group = droneRef.current
+    if (!group) return
+
+    const dt = Math.min(delta, 0.05)
+    const now = state.clock.elapsedTime
+    const input = keys.current
+
+    if (needsClockSync.current) {
+      lastInputTime.current = now
+      needsClockSync.current = false
+    }
+
+    if (!initialized.current) {
+      target.current.copy(group.position)
+      lastInputTime.current = now
+      initialized.current = true
+    }
+
+    // ---- Optional camera rotation (Q / E) ----
+    if (CAM.rotateKeys) {
+      const rot = Number(!!input.KeyE) - Number(!!input.KeyQ)
+      camAzimuth.current += rot * CAM.rotateSpeed * dt
+    }
+    smoothAzimuth.current = dampAngle(
+      smoothAzimuth.current,
+      camAzimuth.current,
+      8,
+      dt
+    )
+    const az = smoothAzimuth.current
+
+    // ---- Input (relative to the screen) ----
+    const forwardInput =
+      Number(!!input.KeyW || !!input.ArrowUp) -
+      Number(!!input.KeyS || !!input.ArrowDown)
+    const strafeInput =
+      Number(!!input.KeyD || !!input.ArrowRight) -
+      Number(!!input.KeyA || !!input.ArrowLeft)
+
+    const forward = forwardV.current.set(-Math.sin(az), 0, -Math.cos(az))
+    const right = rightV.current.set(Math.cos(az), 0, -Math.sin(az))
+
+    const movement = movementV.current
+      .set(0, 0, 0)
+      .addScaledVector(forward, forwardInput)
+      .addScaledVector(right, strafeInput)
+
+    if (movement.lengthSq() > 1) movement.normalize()
+
+    // Shift = speed boost (any direction)
+    const boosting = !!input.ShiftLeft || !!input.ShiftRight
+    const flySpeed = speed * (boosting ? 2 : 1)
+
+    // ---- Move (horizontal only) ----
+    velocity.current.set(movement.x * flySpeed, 0, movement.z * flySpeed)
+    group.position.addScaledVector(velocity.current, dt)
+
+    // Hover bob on the model only (camera ignores it)
+    if (bobRef.current) {
+      bobRef.current.position.y = Math.sin(now * 2) * 0.03
+    }
+
+    // ---- Facing ----
+    const isMoving = movement.lengthSq() > 0.001
+    const isIdle = now - lastInputTime.current > IDLE_SECONDS
+
+    let targetAngle = faceAngle.current
+    if (isMoving) {
+      targetAngle = Math.atan2(movement.x, movement.z)
+    } else if (isIdle) {
+      targetAngle = Math.atan2(
+        camera.position.x - group.position.x,
+        camera.position.z - group.position.z
+      )
+    }
+    faceAngle.current = dampAngle(
+      faceAngle.current,
+      targetAngle,
+      isMoving ? 8 : 4,
+      dt
+    )
+    group.rotation.set(0, faceAngle.current + modelYaw, 0)
+
+    // ---- Chase camera ----
+    const follow = 1 - Math.exp(-CAM.followEase * dt)
+    target.current.lerp(group.position, follow)
+
+    // Smoothly move toward the distance chosen in the menu.
+    currentDistance.current = THREE.MathUtils.damp(
+      currentDistance.current,
+      targetDistance.current,
+      6,
+      dt
+    )
+
+    const speedRatio = Math.min(velocity.current.length() / (speed * 2), 1)
+    zoom.current = THREE.MathUtils.damp(zoom.current, speedRatio, 3, dt)
+    const distance = currentDistance.current + CAM.zoomOut * zoom.current
+
+    const cp = Math.cos(CAM.elevation)
+    const sp = Math.sin(CAM.elevation)
+
+    camera.position.set(
+      target.current.x + Math.sin(az) * cp * distance,
+      target.current.y + CAM.lookHeight + sp * distance,
+      target.current.z + Math.cos(az) * cp * distance
+    )
+    camera.lookAt(
+      target.current.x,
+      target.current.y + CAM.lookHeight,
+      target.current.z
+    )
+  })
+
+  return (
+    <>
+      <group ref={droneRef} position={idleCenter} scale={scale}>
+        <group ref={bobRef}>
+          <primitive object={drone} />
+        </group>
+      </group>
+
+      <Html fullscreen pointerEvents="none" zIndexRange={[20, 0]}>
+        <CameraMenu
+          open={menuOpen}
+          distance={distanceUI}
+          onChange={setDistance}
+          onClose={() => setMenuOpen(false)}
+        />
+      </Html>
+    </>
+  )
+}
+
+useGLTF.preload('/models/cyklo/cyklon_v5.glb')
 
 export default GuideDrone
